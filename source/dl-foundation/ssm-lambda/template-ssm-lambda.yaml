@@ -1,0 +1,191 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template create custom Cloudformation resource, a lambda function that gests the latest version for the value in SSM Parameter store.
+
+##########################################################
+# Parameters
+##########################################################
+Parameters:
+  pFrameworkPrefix:
+    Description: Prefix of the framework. Default to cdl (Custom Data Lake). (all lowercase, no symbols or spaces)
+    Type: String
+    AllowedPattern: "[a-z]{2,5}"
+  pLogsRetentionInDays:
+    Type: String
+    Default: 7
+  pEnvironment:
+    Type: String
+  pOrganizationName:
+    Type: String
+  pReplicaDestRegion:
+    Type: String
+    Description: Replication region, if no replication is needed then set to N/A.
+    Default: "N/A"
+
+##########################################################
+# Resources
+##########################################################
+Resources:
+
+##########################################################
+# This is to be used by all apps in the environment.
+  rEnvSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/environment
+      Type: String
+      Value: !Sub ${pEnvironment}
+      Description: Environment of the account (dev, test, prod, ...)
+
+  rFrameworkPrefixSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/framework-prefix
+      Type: String
+      Value: !Sub ${pFrameworkPrefix}
+      Description: Prefix to identify this data lake/application within the organization.
+
+  rOrganizationNameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/organization-name
+      Type: String
+      Value: !Sub ${pOrganizationName}
+      Description: Organization Name
+
+  rDefaultLogRetentionSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/cwlogs-retention
+      Type: String
+      Value: !Sub ${pLogsRetentionInDays}
+      Description: Default number of days logs are retained by CloudWatch logs. There is no grantee that CF templates uses this parameter. It is advinced it is used.
+
+  rReplicaDestRegionSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/replica-dest-region
+      Type: String
+      Value: !Sub ${pReplicaDestRegion}
+      Description: Replication region
+
+
+  rDefaultSSMParameterLambdaNameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/cf-ssm-lambda-name
+      Type: String
+      Value: !Sub ${pFrameworkPrefix}-cloudformation-ssm-parameter-value
+      Description: Name of the Lambda function used to get latest value of SSM paramter value.
+
+  rDefaultSSMParameterLambdaArnSsm:
+    DependsOn: rConfigCustomResourceFunction
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/cf-ssm-lambda-arn
+      Type: String
+      Value: !GetAtt rConfigCustomResourceFunction.Arn
+      Description: Arn of the Lambda function used to get latest value of SSM paramter value.
+
+
+  # Logs
+  rLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${pFrameworkPrefix}-cloudformation-ssm-parameter-value
+      RetentionInDays: !Ref pLogsRetentionInDays
+
+  rConfigCustomResourceExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${pEnvironment}-cf-ssm-parameter-value
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: [
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ]
+                Resource: !GetAtt rLogGroup.Arn
+        - PolicyName: SSM
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action: [ 'ssm:GetParameter*' ]
+                Resource: [
+                  !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/account/*",
+                  !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/${pFrameworkPrefix}/*",
+                ]
+                Effect: Allow
+
+  rConfigCustomResourcePermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt rConfigCustomResourceFunction.Arn
+      Principal: 'cloudformation.amazonaws.com'
+
+  rConfigCustomResourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      ReservedConcurrentExecutions: 5
+      Runtime: python3.9
+      FunctionName: !Sub ${pFrameworkPrefix}-cloudformation-ssm-parameter-value
+      Role: !GetAtt rConfigCustomResourceExecutionRole.Arn
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPython:19"
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          import cfnresponse
+          import sys, os
+          from aws_lambda_powertools import Logger
+
+          logger = Logger(stream=sys.stdout, log_record_order=["level", "message"])
+
+          def handler(event, context):
+            logger.info(f"**** Starting: {os.environ['AWS_LAMBDA_FUNCTION_NAME']} ****")
+            data = {}
+            try:
+                request_type = event["RequestType"].lower()
+                logger.info(f"Request Type: {request_type}")
+                if request_type == 'delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+                else:
+                  parampath = event['ResourceProperties']['ParamPath']
+                  service_type = (event['ResourceProperties']).get('ServiceType', 'ssm')
+                  region = (event['ResourceProperties']).get('AwsRegion', os.environ['AWS_REGION'] )
+                  logger.info(f"Service Type: {service_type} | Path requested: {parampath} | Region: {region}")
+
+                  # If region is set to N/A then value returned is empty string
+                  if region.upper() == 'N/A':
+                    value = ""
+                  else:
+                    ssm = boto3.client('ssm', region_name=region)
+                    response = ssm.get_parameter(Name=parampath)
+                    value = response['Parameter']['Value']
+                  
+
+                  data['Value'] = value
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+                  logger.info(f"**** Success: {os.environ['AWS_LAMBDA_FUNCTION_NAME']} ****")
+
+            except Exception as e:
+                logger.error(str(e))
+                cfnresponse.send(event, context, cfnresponse.FAILED, {})
+
+
+      Handler: index.handler

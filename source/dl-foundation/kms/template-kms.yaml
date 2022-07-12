@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: KMS resources to be created by the common stack
+Parameters:
+  pFrameworkPrefix:
+      Type: AWS::SSM::Parameter::Value<String>
+      Default: '/account/framework-prefix'
+      Description: Framework prefix from SSM
+  pOrganizationName:
+      Type: AWS::SSM::Parameter::Value<String>
+      Default: '/account/organization-name'
+      Description: Organization name from SSM
+  pEnvironment:
+      Type: AWS::SSM::Parameter::Value<String>
+      Default: '/account/environment'
+      Description: Environment from SSM
+      
+Resources:
+  ######## KMS #########
+  rKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${pEnvironment}/${AWS::Region}/${pOrganizationName}-kms-key'
+      TargetKeyId: !Ref rKMSKey
+
+  rKMSKey:
+    Type: AWS::KMS::Key
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: F76
+            reason: Full access is allowed to Key admin and some AWS services
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Foundations KMS Key
+      EnableKeyRotation: True
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: !Sub '${pOrganizationName}-${pFrameworkPrefix}-${AWS::AccountId}-${pEnvironment}-key-default-policy'
+        Statement:
+          - Sid: Allow administration of the key
+            Effect: Allow
+            Principal:
+              AWS: [!Sub "arn:aws:iam::${AWS::AccountId}:root"]
+            Action: kms:*
+            Resource: "*"
+          - Sid: Allow CloudTrail/CloudWatch alarms access
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+                - cloudwatch.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey*
+            Resource: "*"
+          - Sid: Allow logs access
+            Effect: Allow
+            Principal:
+              Service: !Sub logs.${AWS::Region}.amazonaws.com
+            Action:
+              - kms:CreateGrant
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource: "*"
+          - Sid: Allow SNS access
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey*
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                kms:ViaService: !Sub sns.${AWS::Region}.amazonaws.com
+          - Sid: Allow S3 Events access
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: "*"
+          - Sid: Allow DynamoDB access
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - kms:CreateGrant
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                kms:ViaService: !Sub dynamodb.${AWS::Region}.amazonaws.com
+          - Sid: Allow ElasticSearch access
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - kms:CreateGrant
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                kms:ViaService: !Sub es.${AWS::Region}.amazonaws.com
+              Bool:
+                kms:GrantIsForAWSResource: true
+          - Sid: Allow CloudWatch Events access
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: "*"
+
+
+  ######## SSM #########
+  rKMSKeySsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${pFrameworkPrefix}/foundation/kms/key-arn'
+      Type: String
+      Value: !GetAtt rKMSKey.Arn
+      Description: Arn of the KMS key
+
+  rKMSKeyIdSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${pFrameworkPrefix}/foundation/kms/key-id'
+      Type: String
+      Value: !GetAtt rKMSKey.KeyId
+      Description: Arn of the KMS key
+
+
+
+##########################################################
+# Outputs
+##########################################################
+Outputs:
+  oKMSKeyArn:
+    Value: !GetAtt
+      - rKMSKey
+      - Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-KeyArn"
+  oKMSKeyId:
+    Value: !GetAtt
+      - rKMSKey
+      - KeyId
+    Export:
+      Name: !Sub "${AWS::StackName}-KeyId"

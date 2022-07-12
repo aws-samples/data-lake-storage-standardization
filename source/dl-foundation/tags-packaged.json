@@ -1,0 +1,39 @@
+[
+  {
+    "Key": "key:business:cost-center",
+    "Value": "100"
+  },
+  {
+    "Key": "key:business:steward",
+    "Value": "business_stewards@company.com"
+  },
+  {
+    "Key": "key:business:department",
+    "Value": "IT"
+  },
+  {
+    "Key": "key:business:project-code",
+    "Value": "0"
+  },
+  {
+    "Key": "key:deployment:environment",
+    "Value": "dev"
+  },
+  {
+    "Key": "key:deployment:deployed-by",
+    "Value": "shell-script"
+  },
+  {
+    "Key": "key:deployment:automation",
+    "Value": "None"
+  },
+  {
+    "Key": "key:security:dataclassification",
+    "Value": "confidential"
+  },
+  {
+    "Key": "key:business:application-name",
+    "Value": "aws-dev-apgdl"
+  }
+
+]

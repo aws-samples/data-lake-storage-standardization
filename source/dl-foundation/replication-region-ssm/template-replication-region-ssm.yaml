@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: SSM parameters for the secondary/backup region
+Metadata: {}
+Parameters:
+  pEnvironment:
+    Type: String
+    Description: Required by framework - Environment (dev, test, prod)
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  pOrganizationName:
+    Type: String
+  pFrameworkPrefix:
+    Type: String
+  pLogsRetentionInDays:
+    Type: String
+  pReplicaDestRegion:
+    Type: String
+
+##########################################################
+# Resources
+##########################################################
+Resources:
+
+  rEnvSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/environment
+      Type: String
+      Value: !Sub ${pEnvironment}
+      Description: Environment of the account (dev, test, prod, ...)
+
+  rFrameworkPrefixSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/framework-prefix
+      Type: String
+      Value: !Sub ${pFrameworkPrefix}
+      Description: Prefix to identify this data lake/application within the organization.
+
+
+  rOrganizationNameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/organization-name
+      Type: String
+      Value: !Sub ${pOrganizationName}
+      Description: Organization Name
+
+  rDefaultLogRetentionSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /account/cwlogs-retention
+      Type: String
+      Value: !Sub ${pLogsRetentionInDays}
+      Description: Default number of days logs are retained by CloudWatch logs. There is no grantee that CF templates uses this parameter. It is advinced it is used.
+

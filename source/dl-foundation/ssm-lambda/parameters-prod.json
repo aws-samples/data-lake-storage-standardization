@@ -1,0 +1,22 @@
+[
+    {
+        "ParameterKey": "pEnvironment",
+        "ParameterValue": "prod"
+    },
+    {
+        "ParameterKey": "pOrganizationName",
+        "ParameterValue": "aws"
+    },
+    {
+        "ParameterKey": "pFrameworkPrefix",
+        "ParameterValue": "apgdl"
+    },
+    {
+        "ParameterKey": "pLogsRetentionInDays",
+        "ParameterValue": "90"
+    },
+    {
+        "ParameterKey": "pReplicaDestRegion",
+        "ParameterValue": "us-east-1"
+    }
+]

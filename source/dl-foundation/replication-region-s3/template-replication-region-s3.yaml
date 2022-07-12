@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: KMS and S3 for the secondary/backup region
+Metadata: {}
+Parameters:
+  pReplicaDestRegionKmsStackName:
+    Type: String
+    Default: replication-region-kms
+  pFrameworkPrefix:
+      Type: String #AWS::SSM::Parameter::Value<String>
+      #Default: '/account/framework-prefix'
+      Description: Framework prefix from SSM
+  pOrganizationName:
+      Type: String #::SSM::Parameter::Value<String>
+      #Default: '/account/organization-name'
+      Description: Organization name from SSM
+  pEnvironment:
+      Type: String #AWS::SSM::Parameter::Value<String>
+      #Default: '/account/environment'
+      Description: Environment from SSM
+  pLogsRetentionInDays:
+    Type: String
+  pReplicaDestRegion:
+    Type: String
+##########################################################
+# Resources
+##########################################################
+Resources:
+
+  ##########################################################
+  # Log
+
+  # S3 Bucket policy ######
+  rDataLakeLogBucketAllowSSLRequestsOnly:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: rDataLakeLogS3Bucket
+    Properties:
+      Bucket: !Ref rDataLakeLogS3Bucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:*'
+            Sid: 'AllowSSLRequestsOnly'
+            Effect: Deny
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeLogS3Bucket
+                    - /*
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeLogS3Bucket
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': "false"
+
+
+  rDataLakeLogS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-log"
+      AccessControl: "LogDeliveryWrite"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: 'AES256' # S3 Access log buckets only support AES256 encryption
+      IntelligentTieringConfigurations:
+          - Id: IntelligentTieringRule
+            Status: Enabled
+            Tierings:
+              - AccessTier: ARCHIVE_ACCESS
+                Days: 90
+              - AccessTier: DEEP_ARCHIVE_ACCESS
+                Days: 180
+
+  ###########################################################
+  # Raw Replica
+
+  # S3 Bucket policy ######
+  rDataLakeRawBucketAllowSSLRequestsOnly:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: rDataLakeRawReplicaS3Bucket
+    Properties:
+      Bucket: !Ref rDataLakeRawReplicaS3Bucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:*'
+            Sid: 'AllowSSLRequestsOnly'
+            Effect: Deny
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeRawReplicaS3Bucket
+                    - /*
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeRawReplicaS3Bucket
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': "false"
+
+  rDataLakeRawReplicaS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-raw"
+      AccessControl: BucketOwnerFullControl
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-raw-logs/"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: True
+            ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !ImportValue
+                              'Fn::Sub': "${pFrameworkPrefix}-${pReplicaDestRegionKmsStackName}-KeyId"
+              SSEAlgorithm: 'aws:kms'
+      LifecycleConfiguration:
+        Rules:
+          - Id: S3StandardIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 1
+                StorageClass: INTELLIGENT_TIERING
+      VersioningConfiguration:
+        Status: Enabled
+
+#  ##########################################################
+#  # Trusted Replica
+
+  # S3 Bucket policy ######
+  rDataLakeTrustedBucketAllowSSLRequestsOnly:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: rDataLakeTrustedReplicaS3Bucket
+    Properties:
+      Bucket: !Ref rDataLakeTrustedReplicaS3Bucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:*'
+            Sid: 'AllowSSLRequestsOnly'
+            Effect: Deny
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeTrustedReplicaS3Bucket
+                    - /*
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeTrustedReplicaS3Bucket
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': "false"
+
+  rDataLakeTrustedReplicaS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-trusted"
+      AccessControl: BucketOwnerFullControl
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-trusted-logs/"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: True
+            ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !ImportValue
+                              'Fn::Sub': "${pFrameworkPrefix}-${pReplicaDestRegionKmsStackName}-KeyId"
+              SSEAlgorithm: 'aws:kms'
+      LifecycleConfiguration:
+        Rules:
+          - Id: IntelligentTiering
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 1
+                StorageClass: INTELLIGENT_TIERING
+      VersioningConfiguration:
+        Status: Enabled
+
+
+#  ##########################################################
+#  # Curated Replica
+
+  # S3 Bucket policy ######
+  rDataLakeCuratedBucketAllowSSLRequestsOnly:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: rDataLakeCuratedReplicaS3Bucket
+    Properties:
+      Bucket: !Ref rDataLakeCuratedReplicaS3Bucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:*'
+            Sid: 'AllowSSLRequestsOnly'
+            Effect: Deny
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeCuratedReplicaS3Bucket
+                    - /*
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rDataLakeCuratedReplicaS3Bucket
+            Principal: "*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': "false"
+                
+  rDataLakeCuratedReplicaS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-curated"
+      AccessControl: BucketOwnerFullControl
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-curated-logs/"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: True
+            ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !ImportValue
+                              'Fn::Sub': "${pFrameworkPrefix}-${pReplicaDestRegionKmsStackName}-KeyId"
+              SSEAlgorithm: 'aws:kms'
+      LifecycleConfiguration:
+        Rules:
+          - Id: IntelligentTiering
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 1
+                StorageClass: INTELLIGENT_TIERING
+      VersioningConfiguration:
+        Status: Enabled
