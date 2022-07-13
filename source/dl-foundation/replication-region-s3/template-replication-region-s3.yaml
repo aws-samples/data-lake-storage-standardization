@@ -30,11 +30,11 @@ Resources:
   # Log
 
   # S3 Bucket policy ######
-  rDataLakeLogBucketAllowSSLRequestsOnly:
+  rLogBucketPolicy:
     Type: AWS::S3::BucketPolicy
-    DependsOn: rDataLakeLogS3Bucket
+    DependsOn: rLogS3Bucket
     Properties:
-      Bucket: !Ref rDataLakeLogS3Bucket
+      Bucket: !Ref rLogS3Bucket
       PolicyDocument:
         Statement:
           - Action:
@@ -45,19 +45,19 @@ Resources:
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeLogS3Bucket
+                    - Ref: rLogS3Bucket
                     - /*
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeLogS3Bucket
+                    - Ref: rLogS3Bucket
             Principal: "*"
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
 
 
-  rDataLakeLogS3Bucket:
+  rLogS3Bucket:
     Type: 'AWS::S3::Bucket'
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
@@ -86,11 +86,11 @@ Resources:
   # Raw Replica
 
   # S3 Bucket policy ######
-  rDataLakeRawBucketAllowSSLRequestsOnly:
+  rRawBucketPolicy:
     Type: AWS::S3::BucketPolicy
-    DependsOn: rDataLakeRawReplicaS3Bucket
+    DependsOn: rRawReplicaS3Bucket
     Properties:
-      Bucket: !Ref rDataLakeRawReplicaS3Bucket
+      Bucket: !Ref rRawReplicaS3Bucket
       PolicyDocument:
         Statement:
           - Action:
@@ -101,19 +101,50 @@ Resources:
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeRawReplicaS3Bucket
+                    - Ref: rRawReplicaS3Bucket
                     - /*
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeRawReplicaS3Bucket
+                    - Ref: rRawReplicaS3Bucket
             Principal: "*"
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'RequireKMSEncryption'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rRawReplicaS3Bucket
+                    - /*
+            Condition:
+              StringNotLikeIfExists:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !ImportValue
+                                                                'Fn::Sub': "${pFrameworkPrefix}-${pReplicaDestRegionKmsStackName}-KeyArn"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'DenySSE-S3'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rRawReplicaS3Bucket
+                    - /*
+            Condition:
+              StringEquals:
+                s3:x-amz-server-side-encryption: "AES256"
 
-  rDataLakeRawReplicaS3Bucket:
+
+  rRawReplicaS3Bucket:
     Type: 'AWS::S3::Bucket'
+    DependsOn: rLogS3Bucket
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -125,7 +156,7 @@ Resources:
         BlockPublicPolicy: true
         RestrictPublicBuckets: true
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        DestinationBucketName: !Ref rLogS3Bucket
         LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-raw-logs/"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
@@ -145,14 +176,14 @@ Resources:
         Status: Enabled
 
 #  ##########################################################
-#  # Trusted Replica
+#  # Normalized Replica
 
   # S3 Bucket policy ######
-  rDataLakeTrustedBucketAllowSSLRequestsOnly:
+  rNormalizedBucketPolicy:
     Type: AWS::S3::BucketPolicy
-    DependsOn: rDataLakeTrustedReplicaS3Bucket
+    DependsOn: rNormalizedReplicaS3Bucket
     Properties:
-      Bucket: !Ref rDataLakeTrustedReplicaS3Bucket
+      Bucket: !Ref rNormalizedReplicaS3Bucket
       PolicyDocument:
         Statement:
           - Action:
@@ -163,23 +194,54 @@ Resources:
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeTrustedReplicaS3Bucket
+                    - Ref: rNormalizedReplicaS3Bucket
                     - /*
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeTrustedReplicaS3Bucket
+                    - Ref: rNormalizedReplicaS3Bucket
             Principal: "*"
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'RequireKMSEncryption'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rNormalizedReplicaS3Bucket
+                    - /*
+            Condition:
+              StringNotLikeIfExists:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !ImportValue
+                                                                'Fn::Sub': "${pFrameworkPrefix}-${pReplicaDestRegionKmsStackName}-KeyArn"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'DenySSE-S3'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rNormalizedReplicaS3Bucket
+                    - /*
+            Condition:
+              StringEquals:
+                s3:x-amz-server-side-encryption: "AES256"
 
-  rDataLakeTrustedReplicaS3Bucket:
+
+  rNormalizedReplicaS3Bucket:
     Type: 'AWS::S3::Bucket'
     DeletionPolicy: Retain
+    DependsOn: rLogS3Bucket
     UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-trusted"
+      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-normalized"
       AccessControl: BucketOwnerFullControl
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
@@ -187,8 +249,8 @@ Resources:
         BlockPublicPolicy: true
         RestrictPublicBuckets: true
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
-        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-trusted-logs/"
+        DestinationBucketName: !Ref rLogS3Bucket
+        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-normalized-logs/"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - BucketKeyEnabled: True
@@ -211,11 +273,11 @@ Resources:
 #  # Curated Replica
 
   # S3 Bucket policy ######
-  rDataLakeCuratedBucketAllowSSLRequestsOnly:
+  rCuratedBucketPolicy:
     Type: AWS::S3::BucketPolicy
-    DependsOn: rDataLakeCuratedReplicaS3Bucket
+    DependsOn: rCuratedReplicaS3Bucket
     Properties:
-      Bucket: !Ref rDataLakeCuratedReplicaS3Bucket
+      Bucket: !Ref rCuratedReplicaS3Bucket
       PolicyDocument:
         Statement:
           - Action:
@@ -226,20 +288,50 @@ Resources:
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeCuratedReplicaS3Bucket
+                    - Ref: rCuratedReplicaS3Bucket
                     - /*
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeCuratedReplicaS3Bucket
+                    - Ref: rCuratedReplicaS3Bucket
             Principal: "*"
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
-                
-  rDataLakeCuratedReplicaS3Bucket:
+          - Action:
+              - 's3:PutObject'
+            Sid: 'RequireKMSEncryption'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rCuratedReplicaS3Bucket
+                    - /*
+            Condition:
+              StringNotLikeIfExists:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !ImportValue
+                                                                'Fn::Sub': "${pFrameworkPrefix}-${pReplicaDestRegionKmsStackName}-KeyArn"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'DenySSE-S3'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rCuratedReplicaS3Bucket
+                    - /*
+            Condition:
+              StringEquals:
+                s3:x-amz-server-side-encryption: "AES256"
+
+  rCuratedReplicaS3Bucket:
     Type: 'AWS::S3::Bucket'
     DeletionPolicy: Retain
+    DependsOn: rLogS3Bucket
     UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-curated"
@@ -250,7 +342,7 @@ Resources:
         BlockPublicPolicy: true
         RestrictPublicBuckets: true
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        DestinationBucketName: !Ref rLogS3Bucket
         LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-replica-curated-logs/"
       BucketEncryption:
         ServerSideEncryptionConfiguration:

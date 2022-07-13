@@ -52,7 +52,7 @@ Resources:
       EnableKeyRotation: True
       KeyPolicy:
         Version: 2012-10-17
-        Id: !Sub "{{resolve:ssm:/account/organization-name}}-{{resolve:ssm:/account/framework-prefix}}-${AWS::AccountId}-{{resolve:ssm:/account/environment}}-key-default-policy"
+        Id: "key-default-policy"
         Statement:
           - Sid: Allow administration of the key
             Effect: Allow

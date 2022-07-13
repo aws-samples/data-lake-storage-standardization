@@ -9,7 +9,7 @@ DIRNAME_ROOT=$(dirname "$0")
 
 # List of templates to deploy -- use space between each template
 #  templates are deployed in the order listed here
-# Example of on how to run the script -- for local only -- ./source/dl-foundation/deploy.sh -f apg -e dev -r ca-central-1 -p 46
+# Example of on how to run the script -- for local only -- ./source/dl-foundation/deploy.sh -f apgdl -e dev -r ca-central-1 -p 46
 
 TEMPLATE_DIRECTORIES="ssm-lambda replication-region-ssm replication-region-kms replication-region-s3 kms s3"
 

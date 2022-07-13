@@ -46,6 +46,12 @@ Resources:
       ServiceToken: !Ref pCfSsmLambdaArn
       ParamPath: !Sub '/${pFrameworkPrefix}/foundation/kms/key-id' # parameter name
 
+  rKmsKeyArn:
+    Type: 'AWS::CloudFormation::CustomResource'
+    Properties:
+      ServiceToken: !Ref pCfSsmLambdaArn
+      ParamPath: !Sub '/${pFrameworkPrefix}/foundation/kms/key-arn' # parameter name
+
   rReplicaDestKmsArn:
     Type: 'AWS::CloudFormation::CustomResource'
     Properties:
@@ -56,7 +62,7 @@ Resources:
   ##########################################################
   # Cross Region Replication Role - Used by S3 to replicated buckets
   #     DeletionPolicy: Retain
-  rDataLakeReplicaRole:
+  rReplicaRole:
     Type: AWS::IAM::Role
     Condition: CreateCrossRegionReplicationCondition
     Properties:
@@ -83,23 +89,23 @@ Resources:
                   - 's3:Delete*'
                 Resource:
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-raw/*"
-                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-trusted/*"
+                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-normalized/*"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-curated/*"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-artifact/*"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-raw"
-                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-trusted"
+                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-normalized"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-curated"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-artifact"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-raw/*"
-                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-trusted/*"
+                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-normalized/*"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-curated/*"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-artifact/*"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-raw"
-                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-trusted"
+                  - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-normalized"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-curated"
                   - !Sub "arn:aws:s3:::${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-artifact"
                 Effect: Allow
-        - PolicyName: same-acct-kms
+        - PolicyName: kms
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -107,7 +113,7 @@ Resources:
                   - 'kms:Encrypt*'
                   - 'kms:Decrypt*'
                 Resource:
-                  - !GetAtt rKmsId2.Value
+                  - !GetAtt rKmsKeyArn.Value
                   -
                     Fn::If:
                       - CreateCrossRegionReplicationCondition
@@ -121,10 +127,10 @@ Resources:
   # Log Bucket
   ##########################################################
 
-  rDataLakeLogS3Bucket:
+  rLogS3Bucket:
     Type: 'AWS::S3::Bucket'
-#    DeletionPolicy: Retain
-#    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-log"
       AccessControl: "LogDeliveryWrite"
@@ -147,11 +153,11 @@ Resources:
                 Days: 180
 
   ####### S3 Bucket policy ######
-  rDataLakeLogBucketAllowSSLRequestsOnly:
+  rLogBucketPolicy:
     Type: AWS::S3::BucketPolicy
-    DependsOn: rDataLakeLogS3Bucket
+    DependsOn: rLogS3Bucket
     Properties:
-      Bucket: !Ref rDataLakeLogS3Bucket
+      Bucket: !Ref rLogS3Bucket
       PolicyDocument:
         Statement:
           - Action:
@@ -162,12 +168,12 @@ Resources:
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeLogS3Bucket
+                    - Ref: rLogS3Bucket
                     - /*
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rDataLakeLogS3Bucket
+                    - Ref: rLogS3Bucket
             Principal: "*"
             Condition:
               Bool:
@@ -178,14 +184,14 @@ Resources:
     Properties:
       Name: !Sub /${pFrameworkPrefix}/foundation/s3/log-arn
       Type: String
-      Value: !GetAtt rDataLakeLogS3Bucket.Arn
+      Value: !GetAtt rLogS3Bucket.Arn
 
   rS3LogNameSsm:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub /${pFrameworkPrefix}/foundation/s3/log-name
       Type: String
-      Value: rDataLakeLogS3Bucket
+      Value: rLogS3Bucket
 
 
 
@@ -210,7 +216,7 @@ Resources:
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        DestinationBucketName: !Ref rLogS3Bucket
         LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-artifact-logs/"
       LifecycleConfiguration:
         Rules:
@@ -223,7 +229,7 @@ Resources:
         Status: Suspended
 
   ####### S3 Bucket policy ######
-  rArtifactoryBucketAllowSSLRequestsOnly:
+  rArtifactoryBucketPolicy:
     Type: AWS::S3::BucketPolicy
     DependsOn: rArtifactoryBucket
     Properties:
@@ -265,14 +271,14 @@ Resources:
       Value: !Ref rArtifactoryBucket
 
   ##########################################################
-  # Landing Bucket
+  # Intake Bucket
   ##########################################################
 
 
-  rLandingBucket:
+  rIntakeBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-landing"
+      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-intake"
       AccessControl: BucketOwnerFullControl
       PublicAccessBlockConfiguration:
         BlockPublicAcls: True
@@ -282,8 +288,8 @@ Resources:
       VersioningConfiguration:
         Status: Suspended
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
-        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-landing-logs/"
+        DestinationBucketName: !Ref rLogS3Bucket
+        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-intake-logs/"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - BucketKeyEnabled: True
@@ -301,11 +307,11 @@ Resources:
               - TransitionInDays: 1
                 StorageClass: INTELLIGENT_TIERING
 
-  rLandingBucketAllowSSLRequestsOnly:
+  rIntakeBucketPolicy:
     Type: AWS::S3::BucketPolicy
-    DependsOn: rLandingBucket
+    DependsOn: rIntakeBucket
     Properties:
-      Bucket: !Ref rLandingBucket
+      Bucket: !Ref rIntakeBucket
       PolicyDocument:
         Statement:
           - Action:
@@ -316,30 +322,30 @@ Resources:
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rLandingBucket
+                    - Ref: rIntakeBucket
                     - /*
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rLandingBucket
+                    - Ref: rIntakeBucket
             Principal: "*"
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
 
-  rS3LandingArnSsm:
+  rS3IntakeArnSsm:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub /${pFrameworkPrefix}/foundation/s3/landing-arn
       Type: String
-      Value: !GetAtt rLandingBucket.Arn
+      Value: !GetAtt rIntakeBucket.Arn
 
-  rS3LandingNameSsm:
+  rS3IntakeNameSsm:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub /${pFrameworkPrefix}/foundation/s3/landing-name
       Type: String
-      Value: !Ref rLandingBucket
+      Value: !Ref rIntakeBucket
 
 
   ##########################################################
@@ -363,7 +369,7 @@ Resources:
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        DestinationBucketName: !Ref rLogS3Bucket
         LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-raw-logs/"
       LifecycleConfiguration:
         Rules:
@@ -381,7 +387,7 @@ Resources:
         Fn::If:
           - CreateCrossRegionReplicationCondition
           -
-            Role: !GetAtt rDataLakeReplicaRole.Arn
+            Role: !GetAtt rReplicaRole.Arn
             Rules:
               - Status: Enabled
                 Prefix: ""
@@ -399,7 +405,7 @@ Resources:
                     ReplicaKmsKeyID: !GetAtt rReplicaDestKmsArn.Value
           - !Ref AWS::NoValue
 
-  rRawBucketAllowSSLRequestsOnly:
+  rRawBucketPolicy:
     Type: AWS::S3::BucketPolicy
     DependsOn: rRawBucket
     Properties:
@@ -425,6 +431,34 @@ Resources:
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'RequireKMSEncryption'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rRawBucket
+                    - /*
+            Condition:
+              StringNotLikeIfExists:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !GetAtt rKmsKeyArn.Value
+          - Action:
+              - 's3:PutObject'
+            Sid: 'DenySSE-S3'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rRawBucket
+                    - /*
+            Condition:
+              StringEquals:
+                s3:x-amz-server-side-encryption: "AES256"
 
   rS3RawArnSsm:
     Type: AWS::SSM::Parameter
@@ -442,13 +476,13 @@ Resources:
 
 
   ##########################################################
-  # Trusted Bucket
+  # Normalized Bucket
   ##########################################################
 
-  rTrustedBucket:
+  rNormalizedBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-trusted"
+      BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-normalized"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - BucketKeyEnabled: True
@@ -462,8 +496,8 @@ Resources:
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
-        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-trusted-logs/"
+        DestinationBucketName: !Ref rLogS3Bucket
+        LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-normalized-logs/"
       LifecycleConfiguration:
         Rules:
           - Id: S3StandardIA
@@ -480,7 +514,7 @@ Resources:
         Fn::If:
           - CreateCrossRegionReplicationCondition
           -
-            Role: !GetAtt rDataLakeReplicaRole.Arn
+            Role: !GetAtt rReplicaRole.Arn
             Rules:
               - Status: Enabled
                 Prefix: ""
@@ -493,16 +527,16 @@ Resources:
                     !Join
                       - ''
                       - - 'arn:aws:s3:::'
-                        - !Sub "${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-trusted"
+                        - !Sub "${pOrganizationName}-${pFrameworkPrefix}-${pReplicaDestRegion}-${AWS::AccountId}-${pEnvironment}-replica-normalized"
                   EncryptionConfiguration:
                     ReplicaKmsKeyID: !GetAtt rReplicaDestKmsArn.Value
           - !Ref AWS::NoValue
 
-  rTrustedBucketAllowSSLRequestsOnly:
+  rNormalizedBucketPolicy:
     Type: AWS::S3::BucketPolicy
-    DependsOn: rTrustedBucket
+    DependsOn: rNormalizedBucket
     Properties:
-      Bucket: !Ref rTrustedBucket
+      Bucket: !Ref rNormalizedBucket
       PolicyDocument:
         Statement:
           - Action:
@@ -513,31 +547,59 @@ Resources:
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rTrustedBucket
+                    - Ref: rNormalizedBucket
                     - /*
               - 'Fn::Join':
                   - ''
                   - - 'arn:aws:s3:::'
-                    - Ref: rTrustedBucket
+                    - Ref: rNormalizedBucket
 
             Principal: "*"
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'RequireKMSEncryption'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rNormalizedBucket
+                    - /*
+            Condition:
+              StringNotLikeIfExists:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !GetAtt rKmsKeyArn.Value
+          - Action:
+              - 's3:PutObject'
+            Sid: 'DenySSE-S3'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rNormalizedBucket
+                    - /*
+            Condition:
+              StringEquals:
+                s3:x-amz-server-side-encryption: "AES256"
 
-  rS3TrustedArnSsm:
+  rS3NormalizedArnSsm:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub /${pFrameworkPrefix}/foundation/s3/trusted-arn
       Type: String
-      Value: !GetAtt rTrustedBucket.Arn
+      Value: !GetAtt rNormalizedBucket.Arn
 
-  rS3TrustedNameSsm:
+  rS3NormalizedNameSsm:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub /${pFrameworkPrefix}/foundation/s3/trusted-name
       Type: String
-      Value: !Ref rTrustedBucket
+      Value: !Ref rNormalizedBucket
 
 
   ##########################################################
@@ -555,7 +617,7 @@ Resources:
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        DestinationBucketName: !Ref rLogS3Bucket
         LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-curated-logs/"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
@@ -579,7 +641,7 @@ Resources:
         Fn::If:
           - CreateCrossRegionReplicationCondition
           -
-            Role: !GetAtt rDataLakeReplicaRole.Arn
+            Role: !GetAtt rReplicaRole.Arn
             Rules:
               - Status: Enabled
                 Prefix: ""
@@ -597,7 +659,7 @@ Resources:
                     ReplicaKmsKeyID: !GetAtt rReplicaDestKmsArn.Value
           - !Ref AWS::NoValue
 
-  rCuratedBucketAllowSSLRequestsOnly:
+  rCuratedBucketPolicy:
     Type: AWS::S3::BucketPolicy
     DependsOn: rCuratedBucket
     Properties:
@@ -618,11 +680,39 @@ Resources:
                   - ''
                   - - 'arn:aws:s3:::'
                     - Ref: rCuratedBucket
-
             Principal: "*"
             Condition:
               Bool:
                 'aws:SecureTransport': "false"
+          - Action:
+              - 's3:PutObject'
+            Sid: 'RequireKMSEncryption'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rCuratedBucket
+                    - /*
+            Condition:
+              StringNotLikeIfExists:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !GetAtt rKmsKeyArn.Value
+          - Action:
+              - 's3:PutObject'
+            Sid: 'DenySSE-S3'
+            Effect: Deny
+            Principal: "*"
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: rCuratedBucket
+                    - /*
+            Condition:
+              StringEquals:
+                s3:x-amz-server-side-encryption: "AES256"
+
 
   rS3CuratedArnSsm:
     Type: AWS::SSM::Parameter
@@ -651,7 +741,7 @@ Resources:
     Properties:
       BucketName: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-temp"
       LoggingConfiguration:
-        DestinationBucketName: !Ref rDataLakeLogS3Bucket
+        DestinationBucketName: !Ref rLogS3Bucket
         LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-temp-logs/"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
@@ -664,7 +754,7 @@ Resources:
         RestrictPublicBuckets: True
 
 
-  rTempBucketAllowSSLRequestsOnly:
+  rTempBucketPolicy:
     Type: AWS::S3::BucketPolicy
     DependsOn: rTempBucket
     Properties:
