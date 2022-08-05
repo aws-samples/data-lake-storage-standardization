@@ -151,7 +151,9 @@ Resources:
                 Days: 90
               - AccessTier: DEEP_ARCHIVE_ACCESS
                 Days: 180
-
+      VersioningConfiguration:
+        Status: Enabled
+        
   ####### S3 Bucket policy ######
   rLogBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -226,7 +228,7 @@ Resources:
               - TransitionInDays: 1
                 StorageClass: INTELLIGENT_TIERING
       VersioningConfiguration:
-        Status: Suspended
+        Status: Enabled
 
   ####### S3 Bucket policy ######
   rArtifactoryBucketPolicy:
@@ -286,7 +288,7 @@ Resources:
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
       VersioningConfiguration:
-        Status: Suspended
+        Status: Enabled
       LoggingConfiguration:
         DestinationBucketName: !Ref rLogS3Bucket
         LogFilePrefix: !Sub "${pOrganizationName}-${pFrameworkPrefix}-${AWS::Region}-${AWS::AccountId}-${pEnvironment}-intake-logs/"
@@ -746,7 +748,7 @@ Resources:
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
-              SSEAlgorithm: 'AES256' # S3 Access log buckets only support AES256 encryption
+              SSEAlgorithm: 'AES256' # Depending on company policy this may be changed to using KMS
       PublicAccessBlockConfiguration:
         BlockPublicAcls: True
         BlockPublicPolicy: True
