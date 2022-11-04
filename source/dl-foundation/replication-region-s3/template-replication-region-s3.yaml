@@ -81,7 +81,9 @@ Resources:
                 Days: 90
               - AccessTier: DEEP_ARCHIVE_ACCESS
                 Days: 180
-
+      VersioningConfiguration:
+        Status: Enabled
+        
   ###########################################################
   # Raw Replica
 
